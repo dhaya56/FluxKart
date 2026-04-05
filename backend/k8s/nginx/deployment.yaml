@@ -1,0 +1,94 @@
+# Nginx — ingress load balancer
+# In production: replace with Kubernetes Ingress + cert-manager for TLS
+# For minikube: NodePort exposes port 80 on the minikube IP
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: fluxkart
+data:
+  nginx.conf: |
+    worker_processes auto;
+    worker_rlimit_nofile 65536;
+
+    events {
+        worker_connections 4096;
+        use epoll;
+        multi_accept on;
+    }
+
+    http {
+        access_log off;
+        sendfile on;
+        keepalive_timeout 65;
+
+        upstream fluxkart_api {
+            least_conn;
+            server fluxkart-api-service:8000;
+        }
+
+        server {
+            listen 80;
+
+            location / {
+                proxy_pass         http://fluxkart_api;
+                proxy_set_header   Host $host;
+                proxy_set_header   X-Real-IP $remote_addr;
+                proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_read_timeout 60s;
+            }
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: fluxkart
+  labels:
+    app: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  namespace: fluxkart
+spec:
+  type: NodePort    # Exposes on minikube IP — access via minikube ip
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080   # Access at http://<minikube-ip>:30080

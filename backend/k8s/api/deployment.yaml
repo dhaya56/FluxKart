@@ -1,0 +1,122 @@
+# FluxKart API — Deployment + Service + HPA
+#
+# HPA (HorizontalPodAutoscaler):
+#   - Starts with 2 replicas (same as Docker Compose)
+#   - Scales up to 10 pods when CPU > 60%
+#   - Scales down when load drops
+#   - This replaces the manual 2-instance Nginx setup in Docker Compose
+#
+# In production: Nginx routes to this Service, K8s load balances across pods
+# automatically — no manual upstream config needed.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fluxkart-api
+  namespace: fluxkart
+  labels:
+    app: fluxkart-api
+spec:
+  replicas: 2   # Initial replicas — HPA takes over from here
+  selector:
+    matchLabels:
+      app: fluxkart-api
+  template:
+    metadata:
+      labels:
+        app: fluxkart-api
+    spec:
+      containers:
+        - name: api
+          image: dhaya56/fluxkart-api:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: fluxkart-config
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fluxkart-secrets
+                  key: postgres-password
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fluxkart-secrets
+                  key: jwt-secret-key
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fluxkart-secrets
+                  key: rabbitmq-password
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"     # HPA scales based on this value
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          # Liveness — restart pod if app is deadlocked
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          # Readiness — only send traffic when app is fully initialized
+          # Prevents traffic during startup (DB pool init, Redis connect, etc.)
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fluxkart-api-service
+  namespace: fluxkart
+spec:
+  selector:
+    app: fluxkart-api
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+# HorizontalPodAutoscaler
+# Automatically scales API pods based on CPU utilization.
+#
+# WHY THIS MATTERS FOR FAANG INTERVIEWS:
+# "How do you handle traffic spikes?"
+# → HPA scales from 2 → 10 pods automatically when CPU exceeds 60%
+# → No manual intervention needed
+# → Scale-down happens automatically when traffic drops
+# → Combined with PgBouncer: 10 pods × 50 connections = 500 app connections
+#    all multiplexed into 90 real PostgreSQL connections
+#
+# Requires metrics-server addon in minikube:
+#   minikube addons enable metrics-server
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fluxkart-api-hpa
+  namespace: fluxkart
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fluxkart-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60

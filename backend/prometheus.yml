@@ -1,0 +1,23 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ── FIX: api1/api2 have no host port mapping — use internal Docker DNS ──────
+  # Previous config pointed to host.docker.internal:8000 which never worked
+  # since api1/api2 ports are not exposed to host (Nginx is the only entry point)
+  - job_name: "fluxkart_api"
+    static_configs:
+      - targets: ["api1:8000", "api2:8000"]
+    metrics_path: "/metrics"
+
+  # ── Jaeger internal metrics ───────────────────────────────────────────────
+  - job_name: "jaeger"
+    static_configs:
+      - targets: ["jaeger:14269"]
+    metrics_path: "/metrics"

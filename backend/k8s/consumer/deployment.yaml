@@ -1,0 +1,54 @@
+# FluxKart Consumer — background workers
+# Same image as API, different command.
+# Only 1 replica — workers use distributed locking via Redis
+# to prevent duplicate processing if scaled to multiple replicas.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fluxkart-consumer
+  namespace: fluxkart
+  labels:
+    app: fluxkart-consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fluxkart-consumer
+  template:
+    metadata:
+      labels:
+        app: fluxkart-consumer
+    spec:
+      containers:
+        - name: consumer
+          image: dhaya56/fluxkart-api:latest
+          command: ["python", "consumers/run_consumer.py"]
+          envFrom:
+            - configMapRef:
+                name: fluxkart-config
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fluxkart-secrets
+                  key: postgres-password
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fluxkart-secrets
+                  key: jwt-secret-key
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fluxkart-secrets
+                  key: rabbitmq-password
+            - name: OTEL_SERVICE_NAME
+              value: "fluxkart-consumer"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"

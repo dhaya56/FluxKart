@@ -1,0 +1,20 @@
+# Non-sensitive configuration — safe to store in ConfigMap
+# Sensitive values (passwords, keys) are in secrets.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluxkart-config
+  namespace: fluxkart
+data:
+  APP_ENV:           "production"
+  POSTGRES_HOST:     "pgbouncer-service"
+  POSTGRES_PORT:     "5432"
+  POSTGRES_DB:       "fluxkart_db"
+  POSTGRES_USER:     "postgres"
+  REDIS_HOST:        "redis-service"
+  REDIS_PORT:        "6379"
+  RABBITMQ_HOST:     "rabbitmq-service"
+  RABBITMQ_PORT:     "5672"
+  RABBITMQ_USER:     "fluxkart"
+  OTEL_SERVICE_NAME: "fluxkart-api"
